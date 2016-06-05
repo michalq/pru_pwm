@@ -6,6 +6,9 @@
 #define PRU_NUM 0
 #define SHIFT 0
 
+// Impulses per revolution, rising and falling edge.
+#define IPR 2*144
+
 struct pid_data {
     /* PID tunings */
     int Kp_f, Ki_f, Kd_f;
