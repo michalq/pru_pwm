@@ -4,6 +4,7 @@
 #include <pruss_intc_mapping.h>
 
 #define PRU_NUM 0
+#define SHIFT 0
 
 struct pid_data {
     /* PID tunings */

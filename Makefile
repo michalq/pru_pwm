@@ -15,7 +15,7 @@ all: pru_pwm.bin pru_pwm
 pru_pwm.bin: pru_pwm.p
 	$(PASM) $(PASMFLAGS) pru_pwm.p
 
-blink_until_button: pru_pwm.o
+pru_pwm: pru_pwm.o
 	$(CC) $(LIBS) $^ -o pru_pwm
 	chmod +x pru_pwm
 
