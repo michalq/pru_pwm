@@ -1,3 +1,4 @@
+pru_pwm
 *.bin
 # Object files
 *.o
