@@ -2,23 +2,23 @@
 
 #include <prussdrv.h>
 #include <pruss_intc_mapping.h>
-#include <sys/time.h>
+#include <time.h>
 
 #define PRU_NUM 0
 #define SHIFT 0
 
 // Counts per revolution, rising and falling edge.
-#define CPR 4*144
+#define CPR 576
 
 struct pid_data {
     /* PID tunings */
     float kp, ki, kd;
 
     /* PID controls */
-    int setpoint;
-    int e;
-    int input, output, last_output;
-    int min_output, max_output;
+    float setpoint;
+    float e;
+    float input, output, last_output;
+    float min_output, max_output;
 };
 
 /* Shared memory block struct */
@@ -68,49 +68,51 @@ int main(void) {
     }
 
     // Init PID.
-    struct pid_data motor1PID;
-    motor1PID.Kp_f = 0.6;
-    motor1PID.Ki_f = 1/8;
-    motor1PID.Kd_f = .125;
-
-    motor1PID.min_output = 20;
-    motor1PID.max_output = 100;
-
-    motor1PID.setpoint = 1;
+    // struct pid_data motor1PID;
+    // motor1PID.kp = 0.6;
+    // motor1PID.ki = 1/8;
+    // motor1PID.kd = .125;
+    //
+    // motor1PID.min_output = 20;
+    // motor1PID.max_output = 100;
+    //
+    // motor1PID.setpoint = 1;
 
     // Init PWM.
     struct pwm pwmData;
     set_pwm(&pwmData);
-    update_pwm_period(&pwmData, 100);
-    update_pwm_duty(&pwmData, 0);
+    update_pwm_period(&pwmData, 1000);
+    update_pwm_duty(&pwmData, 300);
 
-    uint32_t now_ms, last_ms;
+    unsigned int now_ms, last_ms, delta_ms;
     float current_pos, last_pos, delta_pos;
     struct timespec now;
 
     while (1) {
         prussdrv_pru_wait_event(PRU_EVTOUT_0);
         prussdrv_pru_clear_event(PRU_EVTOUT_0, PRU0_ARM_INTERRUPT);
+        clock_gettime(CLOCK_REALTIME, &now);
         impulses++;
         now_ms = (now.tv_sec * 1000 + (now.tv_nsec + 500000) / 1000000); //convert to milliseconds
         delta_ms = now_ms - last_ms;
 
-        current_pos = impulses / CPR;
-        delta_pos = last_pos - current_pos;
+        current_pos = (float) impulses / 576;
+        delta_pos = current_pos - last_pos;
         // speed = (delta_pos*(1000*60/CPR))/(delta_ms); // @todo Do i need it?
 
-        update_pid(motor1PID);
-        update_pwm_duty(&pwmData, motor1PID.output);
+        // update_pid(motor1PID);
+        // update_pwm_duty(&pwmData, motor1PID.output);
 
         last_pos = current_pos;
         last_ms = now_ms;
-        printf("Impulse no. %i\n", impulses);
+        printf("%i, %f, %f, %i, %i, %i\n", impulses, current_pos, delta_pos, delta_ms, now_ms, pwmData.duty);
         if (impulses == CPR) {
             break;
         }
 
     }
 
+    update_pwm_duty(&pwmData, 0);
     close_pwm(&pwmData);
     printf("Finished!\n");
     prussdrv_pru_clear_event(PRU_EVTOUT_0, PRU0_ARM_INTERRUPT);
@@ -124,24 +126,24 @@ int main(void) {
  * @param pid
  */
 void update_pid(volatile struct pid_data* pid) {
-    unsigned float p_f, d_f;
+    float p_f, d_f;
     float output_f, output;
 
     /* Calculate error */
     float error = (pid->input - pid->setpoint);
 
     /* Calculate P term */
-    p_f = pid->Kp_f * error;
+    p_f = pid->kp * error;
 
     /* Integrate I term */
-    pid->int_err += (pid->Ki_f * error) >> SHIFT;
+    pid->e += (pid->ki * error); // >> SHIFT;
 
     /* Calculate D term */
-    d_f = pid->Kd_f * (pid->output - pid->last_output);
+    d_f = pid->kd * (pid->output - pid->last_output);
 
     /* Sum PID output */
-    output_f = p_f + pid->int_err + d_f;
-    output = output_f >> SHIFT;
+    output_f = p_f + pid->e + d_f;
+    output = output_f; // >> SHIFT;
 
     /* Set output_f, check min/max output */
     if (output < pid->min_output) output = pid->min_output;
@@ -163,15 +165,15 @@ void set_pwm(struct pwm* pwmData)
     if (pwmData->pwm == NULL)
         printf("Problem with file for pwm.\n");
 
-    pwmData->period = fopen("/sys/devices/ocp.3/pwm_test_P8_13.15/period", "w");
+    pwmData->period = fopen("/sys/devices/ocp.3/pwm_test_P8_13.19/period", "w");
     if (pwmData->period == NULL)
         printf("Problem with file for pwm-period.\n");
 
-    pwmData->duty = fopen("/sys/devices/ocp.3/pwm_test_P8_13.15/duty", "w");
+    pwmData->duty = fopen("/sys/devices/ocp.3/pwm_test_P8_13.19/duty", "w");
     if (pwmData->duty == NULL)
         printf("Problem with file for pwm-duty.\n");
 
-    pwmData->run = fopen("/sys/devices/ocp.3/pwm_test_P8_13.15/run", "w");
+    pwmData->run = fopen("/sys/devices/ocp.3/pwm_test_P8_13.19/run", "w");
     if (pwmData->run == NULL)
         printf("Problem with file for pwm-run.\n");
 
