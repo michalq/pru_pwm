@@ -3,9 +3,14 @@
 #include <prussdrv.h>
 #include <pruss_intc_mapping.h>
 #include <time.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 
-#define PRU_NUM 0
-#define SHIFT 0
+#define PRU_NUM 1
+
+#define PRU_ADDR 0x4A300000
+
+#define SHAREDRAM_OFFSET 0x00010000
 
 // Counts per revolution, rising and falling edge.
 #define CPR 576
@@ -19,14 +24,6 @@ struct pid_data {
     float e;
     float input, output, last_output;
     float min_output, max_output;
-};
-
-/* Shared memory block struct */
-struct shared_mem {
-    volatile char init_flag;
-    volatile unsigned int pwm_out;
-    volatile int enc_rpm;
-    volatile struct pid_data pid;
 };
 
 struct pwm {
@@ -44,6 +41,9 @@ void update_pwm_period(struct pwm*, int);
 void update_pwm_duty(struct pwm*, int);
 
 int main(void) {
+    int fd = open("/dev/mem", O_RDWR | O_SYNC);
+    ulong* imp = (ulong*) mmap(NULL, 0x10000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, PRU_ADDR+SHAREDRAM_OFFSET);
+
     unsigned int impulses = 0;
     unsigned int status;
 
@@ -68,51 +68,53 @@ int main(void) {
     }
 
     // Init PID.
-    // struct pid_data motor1PID;
-    // motor1PID.kp = 0.6;
-    // motor1PID.ki = 1/8;
-    // motor1PID.kd = .125;
-    //
-    // motor1PID.min_output = 20;
-    // motor1PID.max_output = 100;
-    //
-    // motor1PID.setpoint = 1;
+    struct pid_data motor1PID;
+    motor1PID.kp = .5;
+    motor1PID.ki = .25;
+    motor1PID.kd = .5;
+
+    motor1PID.min_output = 20;
+    motor1PID.max_output = 100;
+
+    motor1PID.setpoint = -1;
 
     // Init PWM.
     struct pwm pwmData;
     set_pwm(&pwmData);
-    update_pwm_period(&pwmData, 1000);
-    update_pwm_duty(&pwmData, 300);
+    update_pwm_period(&pwmData, 50000);
+    update_pwm_duty(&pwmData, 50000 - 10000);
 
     unsigned int now_ms, last_ms, delta_ms;
     float current_pos, last_pos, delta_pos;
     struct timespec now;
 
     while (1) {
-        prussdrv_pru_wait_event(PRU_EVTOUT_0);
-        prussdrv_pru_clear_event(PRU_EVTOUT_0, PRU0_ARM_INTERRUPT);
+//        prussdrv_pru_wait_event(PRU_EVTOUT_0);
+//        prussdrv_pru_clear_event(PRU_EVTOUT_0, PRU0_ARM_INTERRUPT);
+//        printf("Imp: %i", (int) imp[0]);
         clock_gettime(CLOCK_REALTIME, &now);
-        impulses++;
-        now_ms = (now.tv_sec * 1000 + (now.tv_nsec + 500000) / 1000000); //convert to milliseconds
+        impulses = imp[0];
+        now_ms = (now.tv_sec * 1000 + (now.tv_nsec + 500000) / 100000); //convert to milliseconds
         delta_ms = now_ms - last_ms;
 
         current_pos = (float) impulses / 576;
-        delta_pos = current_pos - last_pos;
+        // delta_pos = current_pos - last_pos;
         // speed = (delta_pos*(1000*60/CPR))/(delta_ms); // @todo Do i need it?
 
-        // update_pid(motor1PID);
-        // update_pwm_duty(&pwmData, motor1PID.output);
+	motor1PID.input = current_pos;
+        update_pid(&motor1PID);
+        update_pwm_duty(&pwmData, 50000 - (motor1PID.output*500));
 
         last_pos = current_pos;
         last_ms = now_ms;
-        printf("%i, %f, %f, %i, %i, %i\n", impulses, current_pos, delta_pos, delta_ms, now_ms, pwmData.duty);
-        if (impulses == CPR) {
+        printf("%i, %f, %i, %i\n", impulses, motor1PID.output, delta_ms, now_ms);
+        if (impulses > CPR) {
             break;
         }
 
     }
 
-    update_pwm_duty(&pwmData, 0);
+    update_pwm_duty(&pwmData, 50000);
     close_pwm(&pwmData);
     printf("Finished!\n");
     prussdrv_pru_clear_event(PRU_EVTOUT_0, PRU0_ARM_INTERRUPT);
@@ -131,7 +133,7 @@ void update_pid(volatile struct pid_data* pid) {
 
     /* Calculate error */
     float error = (pid->input - pid->setpoint);
-
+    printf("\nErr %f\n", error);
     /* Calculate P term */
     p_f = pid->kp * error;
 
@@ -144,7 +146,7 @@ void update_pid(volatile struct pid_data* pid) {
     /* Sum PID output */
     output_f = p_f + pid->e + d_f;
     output = output_f; // >> SHIFT;
-
+    printf("\nOut %f\n", output);
     /* Set output_f, check min/max output */
     if (output < pid->min_output) output = pid->min_output;
     if (output > pid->max_output) output = pid->max_output;
@@ -177,22 +179,27 @@ void set_pwm(struct pwm* pwmData)
     if (pwmData->run == NULL)
         printf("Problem with file for pwm-run.\n");
 
+    int writeStatus = 0;
     //
     fseek(pwmData->pwm, 0, SEEK_SET);
     fprintf(pwmData->pwm, "am33xx_pwm");
-    fflush(pwmData->pwm);
+    writeStatus = fflush(pwmData->pwm);
+    printf("Status am33xx_pwm: %i\n", writeStatus);
 
     fprintf(pwmData->pwm, "bone_pwm_P8_13");
-    fflush(pwmData->pwm);
+    writeStatus = fflush(pwmData->pwm);
+    printf("Status bone_pwm_P8_13: %i\n", writeStatus);
 
     //
     fseek(pwmData->run, 0, SEEK_SET);
     fprintf(pwmData->run, "%d", 0);
-    fflush(pwmData->run);
+    writeStatus = fflush(pwmData->run);
+    printf("Status run0: %i\n", writeStatus);
 
     fseek(pwmData->run, 0, SEEK_SET);
     fprintf(pwmData->run, "%d", 1);
-    fflush(pwmData->run);
+    writeStatus = fflush(pwmData->run);
+    printf("Status run1: %i\n", writeStatus);
 }
 
 /**
@@ -217,9 +224,11 @@ void close_pwm(struct pwm* pwmData)
  */
 void update_pwm_period(struct pwm* pwmData, int iPeriod)
 {
+    int writeStatus = 0;
     fseek(pwmData->period, 0, SEEK_SET);
     fprintf(pwmData->period, "%d", iPeriod);
-    fflush(pwmData->period);
+    writeStatus = fflush(pwmData->period);
+//    printf("Period status: %i\n", writeStatus);
 }
 
 /**
@@ -232,7 +241,10 @@ void update_pwm_period(struct pwm* pwmData, int iPeriod)
  */
 void update_pwm_duty(struct pwm* pwmData, int iDuty)
 {
+    int writeStatus = 0;
     fseek(pwmData->duty, 0, SEEK_SET);
     fprintf(pwmData->duty, "%d", iDuty);
-    fflush(pwmData->duty);
+    writeStatus = fflush(pwmData->duty);
+//    printf("Duty status %i\n", writeStatus);
+
 }
