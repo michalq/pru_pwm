@@ -36,19 +36,30 @@ CHECK_B:
         qbeq SET_LB, r0, 0
 SET_HA:
         mov r2, 1
-        mov r2, 1
-        jmp IRQQ
+        getgpio IN_MODULE, IN_ENC_1B
+        qbeq ESUB, r0, r2
+        jmp EADD
 SET_LA:
         mov r2, 0
-        jmp IRQQ
+        getgpio IN_MODULE, IN_ENC_1B
+        qbeq ESUB, r0, r2
+        jmp EADD
 SET_HB:
         mov r3, 1
-        jmp IRQQ
+        getgpio IN_MODULE, IN_ENC_1A
+        qbeq ESUB, r0, r3
+        jmp EADD
 SET_LB:
         mov r3, 0
-        jmp IRQQ
-IRQQ:
+        getgpio IN_MODULE, IN_ENC_1A
+        qbeq ESUB, r0, r3
+        jmp EADD
+EADD:
         //mov r31.b0, PRU0_ARM_INTERRUPT+16
         add r5, r5, 1
+        sbbo r5, r4, 0, 4
+        jmp CHECK_A
+ESUB:
+        add r5, r5, -1
         sbbo r5, r4, 0, 4
         jmp CHECK_A
