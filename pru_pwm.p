@@ -47,19 +47,18 @@ SET_LA:
 SET_HB:
         mov r3, 1
         getgpio IN_MODULE, IN_ENC_1A
-        qbeq ESUB, r0, r3
-        jmp EADD
+        qbeq EADD, r0, r3
+        jmp ESUB
 SET_LB:
         mov r3, 0
         getgpio IN_MODULE, IN_ENC_1A
-        qbeq ESUB, r0, r3
-        jmp EADD
+        qbeq EADD, r0, r3
+        jmp ESUB
 EADD:
-        //mov r31.b0, PRU0_ARM_INTERRUPT+16
         add r5, r5, 1
         sbbo r5, r4, 0, 4
         jmp CHECK_A
 ESUB:
-        add r5, r5, -1
+        sub r5, r5, 1
         sbbo r5, r4, 0, 4
         jmp CHECK_A
