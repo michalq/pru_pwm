@@ -69,11 +69,11 @@ int main(void) {
 
     // Init PID.
     struct pid_data motor1PID;
-    motor1PID.kp = .5;
-    motor1PID.ki = .25;
-    motor1PID.kd = .5;
+    motor1PID.kp = 1;
+    motor1PID.ki = 1/8;
+    motor1PID.kd = 0.125;
 
-    motor1PID.min_output = 20;
+    motor1PID.min_output = -100;
     motor1PID.max_output = 100;
 
     motor1PID.setpoint = -1;
@@ -88,29 +88,63 @@ int main(void) {
     float current_pos, last_pos, delta_pos;
     struct timespec now;
 
+    FILE* inA1 = fopen("/sys/class/gpio/gpio47/direction", "w");
+    FILE* inB1 = fopen("/sys/class/gpio/gpio27/direction", "w");
+    int inA1v = 1;
+    int writeStatus = 0;
+
+    fseek(inA1, 0, SEEK_SET);
+    fprintf(inA1, "%s", "low");
+    writeStatus = fflush(inA1);
+    printf("Set inA1: %i\n", writeStatus);
+
+    fseek(inB1, 0, SEEK_SET);
+    fprintf(inB1, "%s", "high");
+    writeStatus = fflush(inB1);
+    printf("Set inB1: %i\n", writeStatus);
+
     while (1) {
 //        prussdrv_pru_wait_event(PRU_EVTOUT_0);
 //        prussdrv_pru_clear_event(PRU_EVTOUT_0, PRU0_ARM_INTERRUPT);
-//        printf("Imp: %i", (int) imp[0]);
+//        printf("Imp: %i\n", (int) imp[0]);
         clock_gettime(CLOCK_REALTIME, &now);
         impulses = imp[0];
-        now_ms = (now.tv_sec * 1000 + (now.tv_nsec + 500000) / 100000); //convert to milliseconds
-        delta_ms = now_ms - last_ms;
+//        now_ms = (now.tv_sec * 1000 + (now.tv_nsec + 500000) / 100000); //convert to milliseconds
+//        delta_ms = now_ms - last_ms;
 
         current_pos = (float) impulses / 576;
-        // delta_pos = current_pos - last_pos;
-        // speed = (delta_pos*(1000*60/CPR))/(delta_ms); // @todo Do i need it?
 
 	motor1PID.input = current_pos;
         update_pid(&motor1PID);
         update_pwm_duty(&pwmData, 50000 - (motor1PID.output*500));
 
+        if (motor1PID.output < 0 && inA1v != 1) {
+            inA1v = 1;
+
+            fseek(inA1, 0, SEEK_SET);
+            fprintf(inA1, "%s", "high");
+            writeStatus = fflush(inA1);
+
+            fseek(inB1, 0, SEEK_SET);
+            fprintf(inB1, "%s", "low");
+            writeStatus = fflush(inB1);
+        } else if (motor1PID.output > 0 && inA1v != 0) {
+            inA1v = 0;
+            fseek(inA1, 0, SEEK_SET);
+            fprintf(inA1, "%s", "low");
+            writeStatus = fflush(inA1);
+
+            fseek(inB1, 0, SEEK_SET);
+            fprintf(inB1, "%s", "high");
+            //writeStatus = fflush(inB1);
+        }
+
         last_pos = current_pos;
         last_ms = now_ms;
-        printf("%i, %f, %i, %i\n", impulses, motor1PID.output, delta_ms, now_ms);
-        if (impulses > CPR) {
-            break;
-        }
+        printf("%i, %f, %i\n", impulses, motor1PID.output, inA1);
+        //if (impulses > CPR) {
+          //  break;
+        //}
 
     }
 
@@ -133,7 +167,7 @@ void update_pid(volatile struct pid_data* pid) {
 
     /* Calculate error */
     float error = (pid->input - pid->setpoint);
-    printf("\nErr %f\n", error);
+//    printf("\nErr %f\n", error);
     /* Calculate P term */
     p_f = pid->kp * error;
 
@@ -167,15 +201,15 @@ void set_pwm(struct pwm* pwmData)
     if (pwmData->pwm == NULL)
         printf("Problem with file for pwm.\n");
 
-    pwmData->period = fopen("/sys/devices/ocp.3/pwm_test_P8_13.19/period", "w");
+    pwmData->period = fopen("/sys/devices/ocp.3/pwm_test_P8_13.15/period", "w");
     if (pwmData->period == NULL)
         printf("Problem with file for pwm-period.\n");
 
-    pwmData->duty = fopen("/sys/devices/ocp.3/pwm_test_P8_13.19/duty", "w");
+    pwmData->duty = fopen("/sys/devices/ocp.3/pwm_test_P8_13.15/duty", "w");
     if (pwmData->duty == NULL)
         printf("Problem with file for pwm-duty.\n");
 
-    pwmData->run = fopen("/sys/devices/ocp.3/pwm_test_P8_13.19/run", "w");
+    pwmData->run = fopen("/sys/devices/ocp.3/pwm_test_P8_13.15/run", "w");
     if (pwmData->run == NULL)
         printf("Problem with file for pwm-run.\n");
 
